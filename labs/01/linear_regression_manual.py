@@ -24,22 +24,30 @@ def main(args: argparse.Namespace) -> float:
 
     # TODO: Append a constant feature with value 1 to the end of all input data.
     # Then we do not need to explicitly represent bias - it becomes the last weight.
-    ...
+    data = dataset.data
+    ones = np.ones((data.shape[0], 1))
+    data = np.hstack((data, ones))
+
+
 
     # TODO: Split the dataset into a train set and a test set.
     # Use `sklearn.model_selection.train_test_split` method call, passing
     # arguments `test_size=args.test_size, random_state=args.seed`.
-    ...
+
+    X_train, X_test, y_train, y_test = sklearn.model_selection.train_test_split(
+        data, dataset.target, test_size=args.test_size, random_state=args.seed
+    )
+
 
     # TODO: Solve the linear regression using the algorithm from the lecture,
     # explicitly computing the matrix inverse (using `np.linalg.inv`).
-    ...
+    weights = np.linalg.inv(X_train.T @ X_train) @ X_train.T @ y_train
 
     # TODO: Predict target values on the test set.
-    ...
+    y_pred = X_test @ weights
 
     # TODO: Manually compute root mean square error on the test set predictions.
-    rmse = ...
+    rmse = np.sqrt(np.mean((y_test - y_pred) ** 2))
 
     return rmse
 
