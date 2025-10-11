@@ -8,6 +8,12 @@ import sklearn.model_selection
 import sklearn.pipeline
 import sklearn.preprocessing
 
+
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.preprocessing import PolynomialFeatures
+from sklearn.pipeline import Pipeline
+
 parser = argparse.ArgumentParser()
 # These arguments will be set appropriately by ReCodEx, even if you change them.
 parser.add_argument("--dataset", default="diabetes", type=str, help="Standard sklearn dataset to load")
@@ -24,23 +30,11 @@ def main(args: argparse.Namespace) -> tuple[np.ndarray, np.ndarray]:
     # Use `sklearn.model_selection.train_test_split` method call, passing
     # arguments `test_size=args.test_size, random_state=args.seed`.
 
-    # TODO: Process the input columns in the following way:
-    #
-    # - if a column has only integer values, consider it a categorical column
-    #   (days in a week, dog breed, ...; in general, integer values can also
-    #   represent numerical non-categorical values, but we use this assumption
-    #   for the sake of exercise). Encode the values with one-hot encoding
-    #   using `sklearn.preprocessing.OneHotEncoder` (note that its output is by
-    #   default sparse, you can use `sparse_output=False` to generate dense output;
-    #   also use `handle_unknown="ignore"` to ignore missing values in test set).
-    #
-    # - for the rest of the columns, normalize their values so that they
-    #   have mean 0 and variance 1; use `sklearn.preprocessing.StandardScaler`.
-    #
-    # In the output, first there should be all the one-hot categorical features,
-    # and then the real-valued features. To process different dataset columns
-    # differently, you can use `sklearn.compose.ColumnTransformer`.
+    X_train, X_test, y_train, y_test = sklearn.model_selection.train_test_split(
+        dataset.data, dataset.target, test_size=args.test_size, random_state=args.seed
+    )
 
+    pipeline = prepare_pipeline_from_train(X_train)
     # TODO: To the current features, append polynomial features of order 2.
     # If the input values are `[a, b, c, d]`, you should append
     # `[a^2, ab, ac, ad, b^2, bc, bd, c^2, cd, d^2]`. You can generate such polynomial
@@ -57,10 +51,34 @@ def main(args: argparse.Namespace) -> tuple[np.ndarray, np.ndarray]:
     # Then transform the training data into `train_data` (with a `transform` call;
     # however, you can combine the two methods into a single `fit_transform` call).
     # Finally, transform testing data to `test_data`.
-    train_data = ...
-    test_data = ...
+    train_data = pipeline.transform(X_train)
+    test_data = pipeline.transform(X_test)
 
     return train_data[:5], test_data[:5]
+
+def prepare_pipeline_from_train(X):
+    categorical_mask = np.all(X == np.round(X), axis=0)
+    categorical_columns = np.where(categorical_mask)[0]
+    numerical_columns = np.where(~categorical_mask)[0]
+
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ('categorical', OneHotEncoder(sparse_output=False, handle_unknown="ignore"), categorical_columns),
+            ('numerical', StandardScaler(), numerical_columns)
+        ]
+    )
+
+    # Create a pipeline that first applies preprocessing, then polynomial features
+    pipeline = Pipeline([
+        ('preprocessor', preprocessor),
+        ('poly', PolynomialFeatures(2, include_bias=False))
+    ])
+
+    pipeline.fit(X)
+
+    return pipeline
+
+
 
 
 if __name__ == "__main__":

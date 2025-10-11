@@ -24,13 +24,26 @@ def main(args: argparse.Namespace) -> tuple[float, float]:
     # Use `sklearn.model_selection.train_test_split` method call, passing
     # arguments `test_size=args.test_size, random_state=args.seed`.
 
+    X_train, X_test, y_train, y_test = sklearn.model_selection.train_test_split(
+        dataset.data, dataset.target, test_size=args.test_size, random_state=args.seed
+    )
+
     lambdas = np.geomspace(0.01, 10, num=500)
     # TODO: Using `sklearn.linear_model.Ridge`, fit the train set using
     # L2 regularization, employing the above defined lambdas.
     # For every model, compute the root mean squared error and return the
     # lambda producing lowest RMSE and the corresponding RMSE.
-    best_lambda = ...
-    best_rmse = ...
+    rmses = []
+
+    for l in lambdas:
+        model = sklearn.linear_model.Ridge(alpha=l)
+        model.fit(X_train, y_train)
+        y_pred = model.predict(X_test)
+        rmse = sklearn.metrics.root_mean_squared_error(y_test, y_pred)
+        rmses.append(rmse)
+
+    best_lambda = lambdas[np.argmin(rmses)]
+    best_rmse = np.min(rmses)
 
     if args.plot:
         # This block is not required to pass in ReCodEx; however, it is useful
