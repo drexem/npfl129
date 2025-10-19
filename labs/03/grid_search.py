@@ -8,6 +8,9 @@ import sklearn.model_selection
 import sklearn.pipeline
 import sklearn.preprocessing
 
+import numpy as np
+from sklearn.pipeline import Pipeline
+
 parser = argparse.ArgumentParser()
 # These arguments will be set appropriately by ReCodEx, even if you change them.
 parser.add_argument("--recodex", default=False, action="store_true", help="Running in ReCodEx")
@@ -27,12 +30,24 @@ def main(args: argparse.Namespace) -> float:
     # TODO: Split the dataset into a train set and a test set.
     # Use `sklearn.model_selection.train_test_split` method call, passing
     # arguments `test_size=args.test_size, random_state=args.seed`.
+    train_data, test_data, train_target, test_target = sklearn.model_selection.train_test_split(
+        dataset.data, dataset.target, test_size=args.test_size, random_state=args.seed
+    )
+
 
     # TODO: Create a pipeline, which
     # 1. passes the inputs through `sklearn.preprocessing.MinMaxScaler()`,
     # 2. passes the result through `sklearn.preprocessing.PolynomialFeatures()`,
     # 3. passes the result through `sklearn.linear_model.LogisticRegression(random_state=args.seed)`.
-    #
+
+
+    # Create a pipeline that first applies preprocessing, then polynomial features
+    pipeline = Pipeline([
+        ('minmax', sklearn.preprocessing.MinMaxScaler()),
+        ('poly', sklearn.preprocessing.PolynomialFeatures()),
+        ('logreg', sklearn.linear_model.LogisticRegression(random_state=args.seed))
+    ])
+
     # Then, using `sklearn.model_selection.StratifiedKFold` with 5 folds, evaluate
     # crossvalidated train performance of all combinations of the following parameters:
     # - polynomial degree: 1, 2
@@ -43,7 +58,17 @@ def main(args: argparse.Namespace) -> float:
     # For the best combination of parameters, compute the test set accuracy.
     #
     # The easiest way is to use `sklearn.model_selection.GridSearchCV`.
-    test_accuracy = ...
+
+    grid = {
+        'poly__degree': [1, 2],
+        'logreg__C': [0.01, 1, 100],
+        'logreg__solver': ['lbfgs', 'sag']
+            }
+    gs = sklearn.model_selection.GridSearchCV(pipeline, grid, cv=sklearn.model_selection.StratifiedKFold(n_splits=5))
+    gs.fit(train_data, train_target)
+    model = gs.best_estimator_
+    test_predictions = model.predict(test_data)
+    test_accuracy = sklearn.metrics.accuracy_score(test_target, test_predictions)
 
     # If `model` is a fitted `GridSearchCV`, you can use the following code
     # to show the results of all the hyperparameter values evaluated:
