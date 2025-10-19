@@ -4,6 +4,7 @@
 #### Reading: https://ufal.mff.cuni.cz/~courses/npfl129/2526/slides.pdf/npfl129-2526-02.pdf, PDF Slides
 #### Video: https://lectures.ms.mff.cuni.cz/video/rec/npfl129/2526/npfl129-2526-02-czech.mp4, CS Lecture
 #### Video: https://lectures.ms.mff.cuni.cz/video/rec/npfl129/2526/npfl129-2526-02-english.mp4, EN Lecture
+#### Video: https://lectures.ms.mff.cuni.cz/video/rec/npfl129/2526/npfl129-2526-02-practicals-czech.mp4, CS Practicals
 #### Video: https://lectures.ms.mff.cuni.cz/video/rec/npfl129/2526/npfl129-2526-02-practicals-english.mp4, EN Practicals
 #### Lecture assignment: linear_regression_l2
 #### Lecture assignment: linear_regression_sgd
@@ -30,3 +31,5 @@
 - [Linear regression demo](https://mlu-explain.github.io/linear-regression) by Jared Willber
 - [Why Momentum Really Works](https://distill.pub/2017/momentum/) by Gabriel Goh
 - [IPython notebook on momentum](https://github.com/ufal/npfl129/blob/master/notebooks/gradient.ipynb)
+
+After the lecture: short and non-comprehensive [**recap quiz**](http://quest.ms.mff.cuni.cz/class-quiz/quiz/ml_intro_lect02).
