@@ -5,10 +5,11 @@ import numpy as np
 import sklearn.datasets
 import sklearn.metrics
 import sklearn.model_selection
+from sklearn.preprocessing import OneHotEncoder
 
 parser = argparse.ArgumentParser()
 # These arguments will be set appropriately by ReCodEx, even if you change them.
-parser.add_argument("--batch_size", default=10, type=int, help="Batch size")
+parser.add_argument("--batch_size", default=20, type=int, help="Batch size")
 parser.add_argument("--classes", default=10, type=int, help="Number of classes to use")
 parser.add_argument("--epochs", default=10, type=int, help="Number of SGD training epochs")
 parser.add_argument("--learning_rate", default=0.01, type=float, help="Learning rate")
@@ -24,6 +25,11 @@ def main(args: argparse.Namespace) -> tuple[np.ndarray, list[tuple[float, float]
 
     # Load the digits dataset.
     data, target = sklearn.datasets.load_digits(n_class=args.classes, return_X_y=True)
+
+    target = target.reshape(-1,1)
+    enc = OneHotEncoder(handle_unknown='ignore')
+    enc.fit(target)
+    target = enc.transform(target).toarray()
 
     # Append a constant feature with value 1 to the end of all input data.
     # Then we do not need to explicitly represent bias - it becomes the last weight.
@@ -50,10 +56,40 @@ def main(args: argparse.Namespace) -> tuple[np.ndarray, list[tuple[float, float]
         # $softmax(z) = softmax(z + any_constant)$ and compute $softmax(z) = softmax(z - maximum_of_z)$.
         # That way we only exponentiate non-positive values, and overflow does not occur.
 
+        for start in range(0, len(permutation), args.batch_size):
+            batch_indices = permutation[start:start + args.batch_size]
+            batch_data = train_data[batch_indices]
+            batch_target = train_target[batch_indices]
+
+            logits = batch_data @ weights
+            logits_max = np.max(logits, axis=1, keepdims=True)
+            exp_logits = np.exp(logits - logits_max)
+            predictions = exp_logits / np.sum(exp_logits, axis=1, keepdims=True)
+
+            gradient = (1/args.batch_size) *  batch_data.T @ (predictions - batch_target)
+            weights -= args.learning_rate * gradient
+
         # TODO: After the SGD epoch, measure the average loss and accuracy for both the
         # train test and the test set. The loss is the average MLE loss (i.e., the
         # negative log-likelihood, or cross-entropy loss, or KL loss) per example.
-        train_accuracy, train_loss, test_accuracy, test_loss = ...
+
+        train_logits = train_data @ weights
+        train_logits_max = np.max(train_logits, axis=1, keepdims=True)
+        train_exp = np.exp(train_logits - train_logits_max)
+        train_predictions = train_exp / np.sum(train_exp, axis=1, keepdims=True)
+
+        test_logits = test_data @ weights
+        test_logits_max = np.max(test_logits, axis=1, keepdims=True)
+        test_exp = np.exp(test_logits - test_logits_max)
+        test_predictions = test_exp / np.sum(test_exp, axis=1, keepdims=True)
+
+        train_loss = sklearn.metrics.log_loss(train_target, train_predictions)
+        test_loss = sklearn.metrics.log_loss(test_target, test_predictions)
+
+        train_acc = np.mean(np.argmax(train_predictions, axis=1) == np.argmax(train_target, axis=1))
+        test_acc = np.mean(np.argmax(test_predictions, axis=1) == np.argmax(test_target, axis=1))
+
+        train_accuracy, train_loss, test_accuracy, test_loss = train_acc, train_loss, test_acc, test_loss
 
         print("After epoch {}: train loss {:.4f} acc {:.1f}%, test loss {:.4f} acc {:.1f}%".format(
             epoch + 1, train_loss, 100 * train_accuracy, test_loss, 100 * test_accuracy))
