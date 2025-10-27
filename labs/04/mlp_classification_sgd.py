@@ -90,8 +90,8 @@ def main(args: argparse.Namespace) -> tuple[tuple[np.ndarray, ...], list[float]]
 
         # TODO: After the SGD epoch, measure the accuracy for both the
         # train test and the test set.
-        train_pred = forward(train_data)[1]
-        test_pred = forward(test_data)[1]
+        train_pred = forward(train_data)[2]
+        test_pred = forward(test_data)[2]
 
         train_accuracy = np.mean(np.argmax(train_pred, axis=1) == np.argmax(train_target, axis=1))
         test_accuracy = np.mean(np.argmax(test_pred, axis=1) == np.argmax(test_target, axis=1))
