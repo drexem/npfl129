@@ -8,7 +8,8 @@ from typing import Optional
 import urllib.request
 
 import numpy as np
-from sklearn.linear_model import LogisticRegression
+from sklearn.linear_model import SGDClassifier
+from scipy.sparse import csr_matrix, hstack
 
 parser = argparse.ArgumentParser()
 # These arguments will be set appropriately by ReCodEx, even if you change them.
@@ -17,8 +18,9 @@ parser.add_argument("--recodex", default=False, action="store_true", help="Runni
 parser.add_argument("--seed", default=42, type=int, help="Random seed")
 # For these and any other arguments you add, ReCodEx will keep your default value.
 parser.add_argument("--model_path", default="diacritization.model", type=str, help="Model path")
-parser.add_argument("--ngram_size", default=2, type=int, help="Size of n-gram context")
-parser.add_argument("--char_ngram", default=4, type=int, help="Character n-gram size")
+parser.add_argument("--ngram_size", default=7, type=int, help="Size of n-gram context")
+parser.add_argument("--char_ngram", default=5, type=int, help="Character n-gram size")
+parser.add_argument("--max_ngrams", default=50000, type=int, help="Maximum n-grams in vocabulary")
 
 
 class Dataset:
@@ -43,20 +45,6 @@ class Dataset:
             self.target = dataset_file.read()
         self.data = self.target.translate(self.DIA_TO_NODIA)
 
-
-def get_word_boundaries(text, position):
-    non_letters = ' \n\t.,!?;:-"\'()'
-    start = position
-    while start > 0 and text[start - 1] not in non_letters:
-        start -= 1
-
-    end = position
-    while end < len(text) - 1 and text[end + 1] not in non_letters:
-        end += 1
-
-    return start, end + 1
-
-
 def extract_features(text, position, ngram_size, all_chars, char_ngram_size=3, ngram_vocab=None):
     char = text[position].lower()
     features = []
@@ -80,43 +68,17 @@ def extract_features(text, position, ngram_size, all_chars, char_ngram_size=3, n
         else:
             features.append(np.zeros(len(all_chars)))
 
-    if ngram_vocab is not None:
-        for n in range(2, char_ngram_size + 1):
-            for offset in range(-n + 1, 1):
-                start = position + offset
-                ngram_vec = np.zeros(len(ngram_vocab))
-                if start >= 0 and start + n <= len(text):
-                    ngram = text[start:start + n].lower()
-                    if ngram in ngram_vocab:
-                        ngram_vec[ngram_vocab[ngram]] = 1
-                features.append(ngram_vec)
+    if ngram_vocab is not None and char_ngram_size >= 2:
+        n = char_ngram_size
+        for offset in range(-n + 1, 1):
+            start = position + offset
+            ngram_vec = np.zeros(len(ngram_vocab))
+            if start >= 0 and start + n <= len(text):
+                ngram = text[start:start + n].lower()
+                if ngram in ngram_vocab:
+                    ngram_vec[ngram_vocab[ngram]] = 1
+            features.append(ngram_vec)
 
-    word_start, word_end = get_word_boundaries(text, position)
-    word_len = word_end - word_start
-    pos_in_word = position - word_start
-
-    position_features = np.zeros(5)
-    if word_len > 0:
-        position_features[0] = pos_in_word / word_len
-        position_features[1] = 1 if pos_in_word == 0 else 0
-        position_features[2] = 1 if pos_in_word == word_len - 1 else 0
-        position_features[3] = min(word_len / 20.0, 1.0)
-        position_features[4] = abs(pos_in_word - word_len / 2) / (word_len / 2) if word_len > 1 else 0
-    features.append(position_features)
-
-    type_features = np.zeros(5)
-    if position > 0:
-        type_features[0] = 1 if text[position - 1] == ' ' else 0
-    if position < len(text) - 1:
-        type_features[1] = 1 if text[position + 1] == ' ' else 0
-    type_features[2] = 1 if text[position].isupper() else 0
-
-    nearby_chars = text[max(0, position - 3):min(len(text), position + 4)].lower()
-    vowels = sum(1 for c in nearby_chars if c in 'aeiouy')
-    type_features[3] = vowels / len(nearby_chars) if nearby_chars else 0
-    type_features[4] = 1 - type_features[3]
-
-    features.append(type_features)
     all_features = np.concatenate(features)
     return all_features
 
@@ -126,13 +88,15 @@ def build_ngram_vocabulary(text, char_ngram_size, max_ngrams=5000):
 
     ngram_counts = Counter()
 
-    for n in range(2, char_ngram_size + 1):
-        for i in range(len(text) - n + 1):
-            ngram = text[i:i + n].lower()
-            ngram_counts[ngram] += 1
+    # Only collect n-grams of size char_ngram_size
+    n = char_ngram_size
+    for i in range(len(text) - n + 1):
+        ngram = text[i:i + n].lower()
+        ngram_counts[ngram] += 1
 
     most_common = ngram_counts.most_common(max_ngrams)
     ngram_vocab = {ngram: idx for idx, (ngram, _) in enumerate(most_common)}
+    print(f"Built n-gram vocabulary with {len(ngram_vocab)} {n}-grams", file=sys.stderr)
     return ngram_vocab
 
 
@@ -173,6 +137,24 @@ def compute_accuracy(predictions, targets):
     return correct / total if total > 0 else 0
 
 
+def compute_word_accuracy(predictions, targets):
+    """Compute word-level accuracy."""
+    pred_words = predictions.split()
+    target_words = targets.split()
+
+    if len(pred_words) != len(target_words):
+        print(f"Warning: Different number of words - pred: {len(pred_words)}, target: {len(target_words)}", file=sys.stderr)
+
+    correct = 0
+    total = min(len(pred_words), len(target_words))
+
+    for pred_word, target_word in zip(pred_words, target_words):
+        if pred_word == target_word:
+            correct += 1
+
+    return 100.0 * correct / total if total > 0 else 0
+
+
 def main(args: argparse.Namespace) -> Optional[str]:
     if args.predict is None:
         # We are training a model.
@@ -195,7 +177,7 @@ def main(args: argparse.Namespace) -> Optional[str]:
 
         diacritizable = list(set(Dataset.LETTERS_NODIA))
         models = {}
-        ngram_vocab = build_ngram_vocabulary(train_data, args.char_ngram)
+        ngram_vocab = build_ngram_vocabulary(train_data, args.char_ngram, args.max_ngrams)
 
         for letter in diacritizable:
             print(f"Training model for letter '{letter}'...")
@@ -216,11 +198,10 @@ def main(args: argparse.Namespace) -> Optional[str]:
                 X_train = np.array(X_train)
                 y_train = np.array(y_train)
 
-                model = LogisticRegression(
+                model = SGDClassifier(
                     max_iter=5000,
                     random_state=args.seed,
-                    C=1.0,
-                    solver='lbfgs',
+                    loss='log_loss',
                     class_weight='balanced'
                 )
                 model.fit(X_train, y_train)
@@ -248,13 +229,11 @@ def main(args: argparse.Namespace) -> Optional[str]:
                 X_train = np.array(X_train)
                 y_train = np.array(y_train)
 
-                multiclass_model = LogisticRegression(
+                multiclass_model = SGDClassifier(
                     max_iter=5000,
                     random_state=args.seed,
-                    C=1.0,
-                    solver='lbfgs',
-                    class_weight='balanced',
-                    multi_class='multinomial'
+                    loss='log_loss',
+                    class_weight='balanced'
                 )
                 multiclass_model.fit(X_train, y_train)
                 multiclass_models[letter] = multiclass_model
@@ -277,9 +256,14 @@ def main(args: argparse.Namespace) -> Optional[str]:
 
         print("Evaluating on dev set...")
         dev_predictions = predict_text(dev_data, models, all_chars, args.ngram_size, args.char_ngram, letter_mapping, multiclass_models, ngram_vocab)
-        dev_accuracy = compute_accuracy(dev_predictions, dev_target)
-        print(f"Dev accuracy: {dev_accuracy:}%")
 
+        # Character-level accuracy
+        char_accuracy = compute_accuracy(dev_predictions, dev_target)
+        print(f"Dev character accuracy: {char_accuracy * 100:.2f}%", file=sys.stderr)
+
+        # Word-level accuracy (this is what we need for the competition)
+        word_accuracy = compute_word_accuracy(dev_predictions, dev_target)
+        print(f"Dev WORD accuracy: {word_accuracy:.2f}% (target: 86.5%)", file=sys.stderr)
 
         # Serialize the model.
         with lzma.open(args.model_path, "wb") as model_file:
