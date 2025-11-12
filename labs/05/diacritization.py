@@ -8,8 +8,8 @@ from typing import Optional
 import urllib.request
 
 import numpy as np
-from sklearn.linear_model import SGDClassifier
-from scipy.sparse import csr_matrix, hstack
+from sklearn.linear_model import LogisticRegression
+from sklearn.feature_extraction import DictVectorizer
 
 parser = argparse.ArgumentParser()
 # These arguments will be set appropriately by ReCodEx, even if you change them.
@@ -18,9 +18,7 @@ parser.add_argument("--recodex", default=False, action="store_true", help="Runni
 parser.add_argument("--seed", default=42, type=int, help="Random seed")
 # For these and any other arguments you add, ReCodEx will keep your default value.
 parser.add_argument("--model_path", default="diacritization.model", type=str, help="Model path")
-parser.add_argument("--ngram_size", default=7, type=int, help="Size of n-gram context")
-parser.add_argument("--char_ngram", default=5, type=int, help="Character n-gram size")
-parser.add_argument("--max_ngrams", default=50000, type=int, help="Maximum n-grams in vocabulary")
+parser.add_argument("--window", default=4, type=int, help="Context window size")
 
 
 class Dataset:
@@ -45,114 +43,135 @@ class Dataset:
             self.target = dataset_file.read()
         self.data = self.target.translate(self.DIA_TO_NODIA)
 
-def extract_features(text, position, ngram_size, all_chars, char_ngram_size=3, ngram_vocab=None):
-    char = text[position].lower()
+
+def extract_features(text, window_size):
+    """Extract character-level features as dictionaries."""
     features = []
 
-    char_features = np.zeros(len(all_chars))
-    if char in all_chars:
-        char_features[all_chars.index(char)] = 1
-    features.append(char_features)
+    # Process each character
+    for i in range(len(text)):
+        char = text[i].lower()
 
-    context_size = ngram_size // 2
-    for offset in range(-context_size, context_size + 1):
-        if offset == 0:
+        # Only process letters that can have diacritics
+        if char not in Dataset.LETTERS_NODIA:
             continue
-        pos = position + offset
-        if 0 <= pos < len(text):
-            context_char = text[pos].lower()
-            context_vec = np.zeros(len(all_chars))
-            if context_char in all_chars:
-                context_vec[all_chars.index(context_char)] = 1
-            features.append(context_vec)
+
+        feature_dict = {}
+
+        # Context window features (character unigrams)
+        for offset in range(-window_size, window_size + 1):
+            pos = i + offset
+            if pos < 0 or pos >= len(text):
+                feature_dict[f'char_{offset}'] = '<PAD>'
+            else:
+                feature_dict[f'char_{offset}'] = text[pos].lower()
+
+        # Bigrams
+        for offset in range(-window_size, window_size):
+            pos = i + offset
+            if pos < 0 or pos >= len(text) - 1:
+                feature_dict[f'bigram_{offset}'] = '<PAD>'
+            else:
+                feature_dict[f'bigram_{offset}'] = text[pos:pos+2].lower()
+
+        # Trigrams around target
+        for offset in range(-2, 2):
+            pos = i + offset
+            if pos < 0 or pos >= len(text) - 2:
+                feature_dict[f'trigram_{offset}'] = '<PAD>'
+            else:
+                feature_dict[f'trigram_{offset}'] = text[pos:pos+3].lower()
+
+        # Target letter
+        feature_dict['letter'] = char
+
+        # Capitalization
+        feature_dict['is_upper'] = int(text[i].isupper())
+
+        # Word position features
+        word_start = i
+        while word_start > 0 and text[word_start - 1].strip():
+            word_start -= 1
+        word_end = i
+        while word_end < len(text) - 1 and text[word_end + 1].strip():
+            word_end += 1
+
+        word_length = word_end - word_start + 1
+        pos_in_word = i - word_start
+
+        feature_dict['pos_in_word'] = pos_in_word
+        feature_dict['word_length'] = word_length
+        feature_dict['at_word_start'] = int(pos_in_word == 0)
+        feature_dict['at_word_end'] = int(pos_in_word == word_length - 1)
+
+        features.append(feature_dict)
+
+    return features
+
+
+def extract_labels(data_text, target_text):
+    """Extract labels for training."""
+    labels = []
+
+    for i in range(len(data_text)):
+        char_nodia = data_text[i].lower()
+
+        if char_nodia not in Dataset.LETTERS_NODIA:
+            continue
+
+        char_dia = target_text[i]
+
+        # Find which diacritized version this is
+        if char_dia.lower() == char_nodia:
+            # No diacritic
+            label_idx = 0
         else:
-            features.append(np.zeros(len(all_chars)))
+            # Has diacritic - find which one
+            try:
+                label_idx = Dataset.LETTERS_DIA.index(char_dia.lower()) + 1
+            except ValueError:
+                label_idx = 0
 
-    if ngram_vocab is not None and char_ngram_size >= 2:
-        n = char_ngram_size
-        for offset in range(-n + 1, 1):
-            start = position + offset
-            ngram_vec = np.zeros(len(ngram_vocab))
-            if start >= 0 and start + n <= len(text):
-                ngram = text[start:start + n].lower()
-                if ngram in ngram_vocab:
-                    ngram_vec[ngram_vocab[ngram]] = 1
-            features.append(ngram_vec)
+        labels.append(label_idx)
 
-    all_features = np.concatenate(features)
-    return all_features
+    return np.array(labels)
 
 
-def build_ngram_vocabulary(text, char_ngram_size, max_ngrams=5000):
-    from collections import Counter
+def apply_predictions(text, predictions):
+    """Apply predicted diacritics to text."""
+    result = list(text)
+    pred_idx = 0
 
-    ngram_counts = Counter()
+    for i in range(len(text)):
+        char = text[i].lower()
 
-    # Only collect n-grams of size char_ngram_size
-    n = char_ngram_size
-    for i in range(len(text) - n + 1):
-        ngram = text[i:i + n].lower()
-        ngram_counts[ngram] += 1
+        if char not in Dataset.LETTERS_NODIA:
+            continue
 
-    most_common = ngram_counts.most_common(max_ngrams)
-    ngram_vocab = {ngram: idx for idx, (ngram, _) in enumerate(most_common)}
-    print(f"Built n-gram vocabulary with {len(ngram_vocab)} {n}-grams", file=sys.stderr)
-    return ngram_vocab
+        if pred_idx < len(predictions):
+            label = predictions[pred_idx]
+            pred_idx += 1
 
-
-def predict_text(text, models, all_chars, ngram_size, char_ngram_size, letter_mapping, multiclass_models=None, ngram_vocab=None):
-    predictions = list(text)
-    for i, char in enumerate(text):
-        char_lower = char.lower()
-
-        if char_lower in models:
-            features = extract_features(text, i, ngram_size, all_chars, char_ngram_size, ngram_vocab)
-            features = features.reshape(1, -1)
-            prediction = models[char_lower].predict(features)[0]
-
-            if prediction == 1:
-                dia_char = letter_mapping.get(char_lower, char_lower)
-                if isinstance(dia_char, list) and multiclass_models and char_lower in multiclass_models:
-                    variant_prediction = multiclass_models[char_lower].predict(features)[0]
-                    dia_char = dia_char[variant_prediction] if variant_prediction < len(dia_char) else dia_char[0]
-                elif isinstance(dia_char, list):
-                    dia_char = dia_char[0]
-
-                if char.isupper():
+            if label > 0:
+                # Apply diacritic
+                dia_char = Dataset.LETTERS_DIA[label - 1]
+                if text[i].isupper():
                     dia_char = dia_char.upper()
+                result[i] = dia_char
 
-                predictions[i] = dia_char
-
-    return ''.join(predictions)
-
-
-def compute_accuracy(predictions, targets):
-    correct = 0
-    total = len(targets)
-
-    for pred, target in zip(predictions, targets):
-        if pred == target:
-            correct += 1
-
-    return correct / total if total > 0 else 0
+    return ''.join(result)
 
 
-def compute_word_accuracy(predictions, targets):
-    """Compute word-level accuracy."""
-    pred_words = predictions.split()
-    target_words = targets.split()
+def evaluate_accuracy(gold_text, predicted_text):
+    """Calculate word accuracy."""
+    gold_words = gold_text.split()
+    pred_words = predicted_text.split()
 
-    if len(pred_words) != len(target_words):
-        print(f"Warning: Different number of words - pred: {len(pred_words)}, target: {len(target_words)}", file=sys.stderr)
+    if len(gold_words) != len(pred_words):
+        return 0.0
 
-    correct = 0
-    total = min(len(pred_words), len(target_words))
-
-    for pred_word, target_word in zip(pred_words, target_words):
-        if pred_word == target_word:
-            correct += 1
-
-    return 100.0 * correct / total if total > 0 else 0
+    correct = sum(1 for g, p in zip(gold_words, pred_words) if g == p)
+    return correct / len(gold_words)
 
 
 def main(args: argparse.Namespace) -> Optional[str]:
@@ -161,129 +180,107 @@ def main(args: argparse.Namespace) -> Optional[str]:
         np.random.seed(args.seed)
         train = Dataset()
 
-        # Split data into train (90%) and dev (10%)
-        data_len = len(train.data)
-        train_end = int(0.9 * data_len)
+        # Split by lines instead of words
+        print("Splitting into train/dev at line level...", file=sys.stderr)
+        lines = train.data.split('\n')
+        target_lines = train.target.split('\n')
 
-        train_data = train.data[:train_end]
-        train_target = train.target[:train_end]
-        dev_data = train.data[train_end:]
-        dev_target = train.target[train_end:]
+        n_lines = len(lines)
+        line_indices = np.random.permutation(n_lines)
+        dev_size = int(n_lines * 0.1)
+        dev_line_indices = set(line_indices[:dev_size].tolist())
 
-        print(f"Dataset split: train={train_end}, dev={data_len - train_end}",
-              file=sys.stderr)
+        # Build train and dev texts
+        train_data_lines = []
+        train_target_lines = []
+        dev_data_lines = []
+        dev_target_lines = []
 
-        all_chars = list("abcdefghijklmnopqrstuvwxyzáčďéěíňóřšťúůýž .,!?;:-'\"()0123456789")
+        for i in range(n_lines):
+            if i in dev_line_indices:
+                dev_data_lines.append(lines[i])
+                dev_target_lines.append(target_lines[i])
+            else:
+                train_data_lines.append(lines[i])
+                train_target_lines.append(target_lines[i])
 
-        diacritizable = list(set(Dataset.LETTERS_NODIA))
-        models = {}
-        ngram_vocab = build_ngram_vocabulary(train_data, args.char_ngram, args.max_ngrams)
+        train_data_text = '\n'.join(train_data_lines)
+        train_target_text = '\n'.join(train_target_lines)
+        dev_data_text = '\n'.join(dev_data_lines)
+        dev_target_text = '\n'.join(dev_target_lines)
 
-        for letter in diacritizable:
-            print(f"Training model for letter '{letter}'...")
+        # Extract features for training
+        print("Extracting train features...", file=sys.stderr)
+        X_train_dict = extract_features(train_data_text, args.window)
+        y_train = extract_labels(train_data_text, train_target_text)
 
-            X_train = []
-            y_train = []
+        print(f"Train: {len(X_train_dict)} examples", file=sys.stderr)
 
-            for i, char in enumerate(train_data):
-                if char.lower() == letter:
-                    features = extract_features(train_data, i, args.ngram_size, all_chars, args.char_ngram, ngram_vocab)
-                    X_train.append(features)
+        # Extract features for dev
+        print("Extracting dev features...", file=sys.stderr)
+        X_dev_dict = extract_features(dev_data_text, args.window)
+        y_dev = extract_labels(dev_data_text, dev_target_text)
 
-                    target_char = train_target[i]
-                    has_dia = (target_char != char)
-                    y_train.append(1 if has_dia else 0)
+        print(f"Dev: {len(X_dev_dict)} examples", file=sys.stderr)
 
-            if len(X_train) > 0:
-                X_train = np.array(X_train)
-                y_train = np.array(y_train)
+        # Vectorize features
+        print("Vectorizing features...", file=sys.stderr)
+        vectorizer = DictVectorizer(sparse=True)
+        X_train = vectorizer.fit_transform(X_train_dict)
+        X_dev = vectorizer.transform(X_dev_dict)
 
-                model = SGDClassifier(
-                    max_iter=5000,
-                    random_state=args.seed,
-                    loss='log_loss',
-                    class_weight='balanced'
-                )
-                model.fit(X_train, y_train)
-                models[letter] = model
+        print(f"Feature dimension: {X_train.shape[1]}", file=sys.stderr)
 
-                print(f"  Trained on {len(X_train)} examples")
+        # Train logistic regression
+        print("Training model...", file=sys.stderr)
+        classifier = LogisticRegression(
+            max_iter=1000,
+            solver='saga',
+            C=2.0,
+            random_state=args.seed,
+            verbose=1,
+            n_jobs=-1
+        )
+        classifier.fit(X_train, y_train)
 
-        multiclass_models = {}
-        for letter in ['e', 'u']:
-            print(f"Training multiclass model for letter '{letter}' variants...")
+        # Evaluate on dev set
+        print("Evaluating on dev set...", file=sys.stderr)
+        y_pred_dev = classifier.predict(X_dev)
 
-            X_train = []
-            y_train = []
+        # Apply predictions to dev text
+        dev_predicted = apply_predictions(dev_data_text, y_pred_dev)
 
-            variant_map = {'e': {'é': 0, 'ě': 1}, 'u': {'ú': 0, 'ů': 1}}
-            for i, char in enumerate(train_data):
-                if char.lower() == letter:
-                    target_char = train_target[i].lower()
-                    if target_char in variant_map[letter]:
-                        features = extract_features(train_data, i, args.ngram_size, all_chars, args.char_ngram, ngram_vocab)
-                        X_train.append(features)
-                        y_train.append(variant_map[letter][target_char])
+        # Calculate word accuracy
+        accuracy = evaluate_accuracy(dev_target_text, dev_predicted)
+        print(f"Dev set word accuracy: {accuracy * 100:.2f}%", file=sys.stderr)
 
-            if len(X_train) > 0 and len(set(y_train)) > 1:
-                X_train = np.array(X_train)
-                y_train = np.array(y_train)
-
-                multiclass_model = SGDClassifier(
-                    max_iter=5000,
-                    random_state=args.seed,
-                    loss='log_loss',
-                    class_weight='balanced'
-                )
-                multiclass_model.fit(X_train, y_train)
-                multiclass_models[letter] = multiclass_model
-
-        letter_mapping = {
-                'a': 'á', 'c': 'č', 'd': 'ď', 'e': ['é', 'ě'], 'i': 'í',
-                'n': 'ň', 'o': 'ó', 'r': 'ř', 's': 'š', 't': 'ť',
-                'u': ['ú', 'ů'], 'y': 'ý', 'z': 'ž'
-            }
-
+        # Package the model
         model = {
-            'models': models,
-            'multiclass_models': multiclass_models,
-            'all_chars': all_chars,
-            'ngram_size': args.ngram_size,
-            'char_ngram_size': args.char_ngram,
-            'letter_mapping': letter_mapping,
-            'ngram_vocab': ngram_vocab
+            'classifier': classifier,
+            'vectorizer': vectorizer,
+            'window_size': args.window
         }
-
-        print("Evaluating on dev set...")
-        dev_predictions = predict_text(dev_data, models, all_chars, args.ngram_size, args.char_ngram, letter_mapping, multiclass_models, ngram_vocab)
-
-        # Character-level accuracy
-        char_accuracy = compute_accuracy(dev_predictions, dev_target)
-        print(f"Dev character accuracy: {char_accuracy * 100:.2f}%", file=sys.stderr)
-
-        # Word-level accuracy (this is what we need for the competition)
-        word_accuracy = compute_word_accuracy(dev_predictions, dev_target)
-        print(f"Dev WORD accuracy: {word_accuracy:.2f}% (target: 86.5%)", file=sys.stderr)
 
         # Serialize the model.
         with lzma.open(args.model_path, "wb") as model_file:
             pickle.dump(model, model_file)
 
     else:
+        # Use the model and return test set predictions.
         test = Dataset(args.predict)
 
         with lzma.open(args.model_path, "rb") as model_file:
             model = pickle.load(model_file)
 
-        models = model['models']
-        all_chars = model['all_chars']
-        ngram_size = model['ngram_size']
-        char_ngram_size = model['char_ngram_size']
-        letter_mapping = model['letter_mapping']
-        multiclass_models = model.get('multiclass_models', None)
-        ngram_vocab = model.get('ngram_vocab', None)
+        # Extract features from test data
+        X_test_dict = extract_features(test.data, model['window_size'])
+        X_test = model['vectorizer'].transform(X_test_dict)
 
-        predictions = predict_text(test.data, models, all_chars, ngram_size, char_ngram_size, letter_mapping, multiclass_models, ngram_vocab)
+        # Predict
+        y_pred = model['classifier'].predict(X_test)
+
+        # Apply predictions to text
+        predictions = apply_predictions(test.data, y_pred)
 
         return predictions
 
