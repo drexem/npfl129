@@ -78,6 +78,19 @@ def main(args: argparse.Namespace) -> tuple[float, float]:
     #
     # In all cases, the class prior is the distribution of the train data classes.
 
+
+    if args.naive_bayes_type == "bernoulli":
+        train_data = (train_data >= 8).astype(float)
+        multi_p_kd = np.zeros((n_classes, n_features))
+
+        for i, cls in enumerate(classes):
+            class_mask = train_target == cls
+            class_data = train_data[class_mask]
+
+            feature_sums = np.sum(class_data, axis=0)
+            multi_p_kd[i] = (feature_sums + args.alpha) / (class_data.shape[0] + 2 * args.alpha)
+
+
     n_test = test_data.shape[0]
     predictions = np.zeros(n_test)
     log_probabilities = np.zeros(n_test)
@@ -99,6 +112,13 @@ def main(args: argparse.Namespace) -> tuple[float, float]:
                     p_kd = multi_p_kd[j, k]
                     feature_value = test_data[i, k]
                     class_log_probs[j] += feature_value * np.log(p_kd)
+
+            elif args.naive_bayes_type == "bernoulli":
+                class_log_probs[j] = np.log(class_priors[j])
+                for k in range(n_features):
+                    p_kd = multi_p_kd[j, k]
+                    feature_value = 1.0 if test_data[i, k] >= 8 else 0.0
+                    class_log_probs[j] += feature_value * np.log(p_kd) + (1 - feature_value) * np.log(1 - p_kd)
 
 
         predictions[i] = classes[np.argmax(class_log_probs)]
