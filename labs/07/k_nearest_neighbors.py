@@ -9,6 +9,9 @@ import sklearn.metrics
 import sklearn.model_selection
 import sklearn.preprocessing
 
+import ssl
+import urllib.request
+ssl._create_default_https_context = ssl._create_unverified_context
 
 parser = argparse.ArgumentParser()
 # These arguments will be set appropriately by ReCodEx, even if you change them.
@@ -44,7 +47,13 @@ class MNIST:
             setattr(self, key, value[:data_size])
         self.data = self.data.reshape([-1, 28*28]).astype(float)
 
+def compute_norm(v1, v2, p):
+    norms = np.zeros((v1.shape[0], v2.shape[0]))
+    for i in range(v1.shape[0]):
+        for j in range(v2.shape[0]):
+            norms[i,j] = np.linalg.norm(v1[i]-v2[j], ord=p)
 
+    return norms
 def main(args: argparse.Namespace) -> float:
     # Load MNIST data, scale it to [0, 1] and split it to train and test.
     mnist = MNIST(data_size=args.train_size + args.test_size)
@@ -52,20 +61,40 @@ def main(args: argparse.Namespace) -> float:
     train_data, test_data, train_target, test_target = sklearn.model_selection.train_test_split(
         mnist.data, mnist.target, test_size=args.test_size, random_state=args.seed)
 
+
     # TODO: Generate `test_predictions` with classes predicted for `test_data`.
     #
     # Find the `args.k` nearest neighbors, and use their most frequent target class
     # (optionally weighted by a given scheme described below) as prediction,
     # choosing the one with the smallest class number when there are multiple
     # classes with the same frequency.
-    #
+
+    norms = compute_norm(train_data, test_data, args.p)
     # Use $L^p$ norm for a given `args.p` (either 1, 2, or 3) to measure distances.
     #
     # The weighting can be:
     # - "uniform": all nearest neighbors have the same weight,
     # - "inverse": `1/distances` is used as weights,
     # - "softmax": `softmax(-distances)` is used as weights.
-    test_predictions = ...
+    test_predictions = np.zeros(test_target.shape)
+    for i in range(test_data.shape[0]):
+        neighbors_idx = np.argsort(norms[:,i])[:args.k]
+        neighbors_dist = norms[neighbors_idx,i]
+        neighbors_labels = train_target[neighbors_idx]
+
+        if args.weights == "uniform":
+            weights = np.ones(args.k)
+        elif args.weights == "inverse":
+            weights = 1 / (neighbors_dist)
+        elif args.weights == "softmax":
+            exp_neg_dist = np.exp(-neighbors_dist)
+            weights = exp_neg_dist / np.sum(exp_neg_dist)
+
+        class_weights = np.zeros(10)
+        for j in range(args.k):
+            class_weights[neighbors_labels[j]] += weights[j]
+
+        test_predictions[i] = np.argmax(class_weights)
 
     accuracy = sklearn.metrics.accuracy_score(test_target, test_predictions)
 

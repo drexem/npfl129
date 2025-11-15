@@ -27,18 +27,49 @@ def main(args: argparse.Namespace) -> tuple[float, float]:
         data, target, test_size=args.test_size, random_state=args.seed)
 
     # TODO: Train a naive Bayes classifier on the train data.
-    #
+
+    classes = np.unique(train_target)
+    n_classes = args.classes
+    n_features = train_data.shape[1]
+
+    class_priors = np.zeros(n_classes)
+    for i, cls in enumerate(classes):
+        class_priors[i] = np.sum(train_target == cls) / len(train_target)
+
+
     # The `args.naive_bayes_type` can be one of:
     # - "gaussian": implement Gaussian NB training, by estimating mean and
     #   variance of the input features. For variance estimation use
     #     1/N * \sum_x (x - mean)^2
     #   and additionally increase all estimated variances by `args.alpha`.
-    #
+    if args.naive_bayes_type == "gaussian":
+        class_feature_means = np.zeros((n_classes, n_features))
+        class_feature_variances = np.zeros((n_classes, n_features))
+
+        for i, cls in enumerate(classes):
+            class_mask = train_target == cls
+            class_data = train_data[class_mask]
+            class_feature_means[i] = np.mean(class_data, axis=0)
+            class_feature_variances[i] = np.var(class_data, axis=0) + args.alpha
+
+
     #   During prediction, you can compute the probability density function
     #   of a Gaussian distribution using `scipy.stats.norm`, which offers
     #   `pdf` and `logpdf` methods, among others.
     #
     # - "multinomial": Implement multinomial NB with smoothing factor `args.alpha`.
+
+
+    if args.naive_bayes_type == "multinomial":
+        multi_p_kd = np.zeros((n_classes, n_features))
+
+        for i, cls in enumerate(classes):
+            class_mask = train_target == cls
+            class_data = train_data[class_mask]
+
+            feature_sums = np.sum(class_data, axis=0)
+            total_count = np.sum(feature_sums)
+            multi_p_kd[i] = (feature_sums + args.alpha) / (total_count + args.alpha * n_features)
     #
     # - "bernoulli": Implement Bernoulli NB with smoothing factor `args.alpha`.
     #   Because Bernoulli NB works with binary data, binarize the features as
@@ -47,11 +78,43 @@ def main(args: argparse.Namespace) -> tuple[float, float]:
     #
     # In all cases, the class prior is the distribution of the train data classes.
 
+    n_test = test_data.shape[0]
+    predictions = np.zeros(n_test)
+    log_probabilities = np.zeros(n_test)
+
+    for i in range(n_test):
+        class_log_probs = np.zeros(n_classes)
+
+        for j, cls in enumerate(classes):
+            if args.naive_bayes_type == "gaussian":
+                class_log_probs[j] = np.log(class_priors[j])
+                for k in range(n_features):
+                    mean = class_feature_means[j, k]
+                    variance = class_feature_variances[j, k]
+                    feature_value = test_data[i, k]
+                    class_log_probs[j] += scipy.stats.norm.logpdf(feature_value, loc=mean, scale=np.sqrt(variance))
+            elif args.naive_bayes_type == "multinomial":
+                class_log_probs[j] = np.log(class_priors[j])
+                for k in range(n_features):
+                    p_kd = multi_p_kd[j, k]
+                    feature_value = test_data[i, k]
+                    class_log_probs[j] += feature_value * np.log(p_kd)
+
+
+        predictions[i] = classes[np.argmax(class_log_probs)]
+
+        true_class_idx = np.where(classes == test_target[i])[0][0]
+        log_probabilities[i] = class_log_probs[true_class_idx]
+
+    test_accuracy = np.mean(predictions == test_target)
+    test_log_probability = np.sum(log_probabilities)
+
+
     # TODO: Predict the test data classes, and compute
     # - the test set accuracy, and
     # - the joint log-probability of the test set, i.e.,
     #     \sum_{(x_i, t_i) \in test set} \log P(x_i, t_i).
-    test_accuracy, test_log_probability = ...
+    # test_accuracy, test_log_probability = ...
 
     return 100 * test_accuracy, test_log_probability
 

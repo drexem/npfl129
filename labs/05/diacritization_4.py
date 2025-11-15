@@ -223,20 +223,27 @@ class DiacriticPredictor:
 
         print(f"Training neural network on {len(X)} examples...", file=sys.stderr)
         self.network = MLPClassifier(
-            hidden_layer_sizes=(64, 32),
-            alpha=0.01,
-            max_iter=50,
+            hidden_layer_sizes=(128, 64, 32),
+            alpha=0.001,
+            max_iter=10000,
+            learning_rate_init=0.001,
+            early_stopping=False,
+            batch_size=200,
             random_state=self.random_state,
-            verbose=True
+            verbose=True,
+            tol=1e-10,
+            n_iter_no_change=1000000
         )
         self.network.fit(X, y)
         dev_predictions = self.predict_text(dev_input)
 
-        correct_chars = sum(1 for p, g in zip(dev_predictions, dev_gold) if p == g)
-        total_chars = len(dev_gold)
-        char_accuracy = 100.0 * correct_chars / total_chars if total_chars > 0 else 0
+        pred_words = dev_predictions.split()
+        gold_words = dev_gold.split()
+        correct_words = sum(1 for p, g in zip(pred_words, gold_words) if p == g)
+        total_words = len(gold_words)
+        word_accuracy = 100.0 * correct_words / total_words if total_words > 0 else 0
 
-        print(f"Dev char accuracy: {char_accuracy:}%", file=sys.stderr)
+        print(f"Dev word accuracy: {word_accuracy:}%", file=sys.stderr)
 
     def predict_text(self, input_text):
         pad_size = self.half_window
