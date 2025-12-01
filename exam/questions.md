@@ -137,3 +137,63 @@
 1. What measures can we take to prevent numeric instabilities in the Naive Bayes classifier, particularly if the probability density is too high in Gaussian Naive Bayes and there are zero probabilities in Bernoulli Naive Bayes? [10]
 
 1. What is the difference between discriminative and (classical) generative models? [5]
+
+#### Questions@:, Lecture 8 Questions
+
+1. Prove that independent discrete random variables are uncorrelated. [10]
+
+1. Give an example of two random variables that are dependent but uncorrelated. [5]
+
+1. Write down the definition of covariance and Pearson correlation coefficient $\rho$, including its range. [10]
+
+1. Explain how Spearman's rank correlation coefficient and Kendall's rank correlation coefficient are computed (there is no need to describe the Pearson correlation coefficient). [10]
+
+1. Describe setups or tasks where a correlation coefficient might be a good model evaluation metric. [5]
+
+1. Describe under what circumstance correlation can be used to assess the validity of evaluation metrics. Name examples of tasks. What data do you need besides the model predictions and the targets? [10]
+
+1. Define Mean Reciprocal Rank (MRR) and explain for what tasks it is used. Describe a scenario where you would prefer MRR over Spearman/Kendall correlation. [10]
+
+1. Define Cohen's $\kappa$ (including the definition of the respective probabilities) and explain what it is used for when collecting data for machine learning. [10]
+
+1. Explain the relationship between inter-annotator agreement and expected model performance. Why is it suspicious if a model achieves performance significantly above the inter-annotator agreement? What does this suggest about the model and the data? [10]
+
+#### Questions@:, Lecture 9 Questions
+
+1. Considering an averaging ensemble of $M$ models, prove the relation between the average mean squared error of the ensemble and the average error of the individual models, assuming the model errors have zero means and are uncorrelated. Use a formula to explain what uncorrelated errors mean in this context. [20]
+
+1. Explain knowledge distillation: what it is used for, describe how it is done. What is the loss function? How does it differ from standard training? [10]
+
+1. Describe the difference between voting (hard voting) and averaging (soft voting) in classification ensembles. Assuming, you have classication into three classes, give an example of classifier outputs where hard voting and soft voting differ. [10]
+
+1. List and explain three common heuristics used to control the growth of decision trees. Explain what problem it helps prevent and why. [10]
+
+1. In a regression decision tree, state what values are kept in internal nodes, define the squared error criterion, and describe how a leaf is split during training (without discussing splitting constraints). [10]
+
+1. Explain the CART algorithm for constructing a decision tree. Explain the relationship between the loss function that is optimized during the decision tree construction and the splitting criterion that is during the node splitting. [10]
+
+1. In a binary classification decision tree, state what values are kept in internal nodes, define the Gini index, and describe how a node is split during training (without discussing splitting constraints). [10]
+
+1. In a $K$-class classification decision tree, state what values are kept in internal nodes, define the entropy criterion, and describe how a node is split during training (without discussing splitting constraints). [10]
+
+1. For binary classification using decision trees, derive the Gini index from a squared error loss. [20]
+
+1. For $K$-class classification using decision trees, derive the entropy criterion from a non-averaged NLL loss. [20]
+
+1. Describe how a random forest is trained (including bagging and a random subset of features) and how prediction is performed for regression and classification. [10]
+
+#### Questions@:, Lecture 10 Questions
+
+1. Explain the main differences between random forests and gradient-boosted decision trees. [5]
+
+1. Explain the intuition for second-order optimization using Newton's root-finding method or Taylor expansions. [10]
+
+1. Write down the loss function that we optimize in gradient-boosted decision trees while constructing $t^\mathrm{th}$ tree. Then, define $g_i$ and $h_i$ and show the value $w_\mathcal{T}$ of optimal prediction in node $\mathcal{T}$ and the criterion used during node splitting. Explain how the loss formulation relates to Taylor's expansions. [20]
+
+1. List and explain three common techniques used in gradient boosting (beyond the basic algorithm) for preventing overfitting. [10]
+
+1. For binary classification with gradient boosted decision trees, write down how the prediction is computed and define the per-example loss function. [10]
+
+1. For a $K$-class classification, describe how to perform prediction with a gradient boosted decision tree trained for $T$ time steps (how the individual trees perform prediction and how are the $K \cdot T$ trees combined to produce the predicted categorical distribution). [10]
+
+1. What type of data are gradient boosted decision trees suitable for as opposed to multilayer perceptron? Explain the intuition why it is the case. [5]

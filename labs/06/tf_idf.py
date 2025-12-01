@@ -70,7 +70,6 @@ def main(args: argparse.Namespace) -> float:
     vocabulary = {term: idx for idx, (term, count) in enumerate(filtered_terms)}
 
 
-
     # TODO: For each document, compute its features as
     # - term frequency (TF), if `args.tf` is set (term frequency is
     #   proportional to the number of term occurrences but normalized to
@@ -84,11 +83,12 @@ def main(args: argparse.Namespace) -> float:
 
         for i, doc  in enumerate(data):
             terms = re.findall(r'\w+', doc)
-            term_counts = Counter(terms)
-            for term in set(terms):
+            terms_filtered = [term for term in terms if term in vocabulary]
+            term_counts = Counter(terms_filtered)
+            for term in set(terms_filtered):
                 if term in vocabulary:
                     term_doc_count[vocabulary[term]] += 1
-                    features[i, vocabulary[term]] = term_counts[term] / len(terms) if args.tf else 1
+                    features[i, vocabulary[term]] = term_counts[term] / len(terms_filtered) if args.tf else 1
 
 
         return features, term_doc_count
